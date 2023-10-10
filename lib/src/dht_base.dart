@@ -4,6 +4,8 @@ import 'dart:developer';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:bittorrent_dht/src/dht_events.dart';
+import 'package:events_emitter2/events_emitter2.dart';
 import 'package:meta/meta.dart';
 import 'package:dtorrent_common/dtorrent_common.dart';
 
@@ -18,7 +20,7 @@ typedef NewPeerHandler = void Function(CompactAddress address, String hashinfo);
 ///
 /// The default bootstrape is `router.bittorrent.com` , `router.utorrent.com` ,`dht.transmissionbt.com`.
 /// Each UDP timeout is 15 seconds, max request process number is 24
-class DHT {
+class DHT with EventsEmittable<DHTEvent> {
   KRPC? _krpc;
 
   KRPC? get krpc => _krpc;
@@ -31,9 +33,9 @@ class DHT {
       <String, Queue<CompactAddress>>{};
 
   final Map<String, int> _announceTable = <String, int>{};
-
+  @Deprecated('use events_emitter APIs instead')
   final Set<NewPeerHandler> _newPeerHandler = <NewPeerHandler>{};
-
+  @Deprecated('use events_emitter APIs instead')
   final Set<void Function(int code, String msg)> _errorHandler =
       <void Function(int code, String msg)>{};
 
@@ -108,6 +110,7 @@ class DHT {
   ///
   /// User can invoke `bootstrap` after stop , everything will be fresh.
   Future stop() async {
+    events.dispose();
     resourceTable.clear();
     _announceTable.clear();
     _newPeerHandler.clear();
@@ -121,10 +124,12 @@ class DHT {
     _krpc = null;
   }
 
+  @Deprecated('use events_emitter APIs instead')
   bool onError(void Function(int code, String msg) h) {
     return _errorHandler.add(h);
   }
 
+  @Deprecated('use events_emitter APIs instead')
   bool offError(void Function(int code, String msg) h) {
     return _errorHandler.remove(h);
   }
@@ -132,20 +137,24 @@ class DHT {
   void _fireError(InternetAddress address, int port, int code, String msg) {
     log('Got Error from $address:$port',
         error: msg, name: runtimeType.toString());
+    events.emit(DHTError(code: code, message: msg));
     for (var handler in _errorHandler) {
       Timer.run(() => handler(code, msg));
     }
   }
 
+  @Deprecated('use events_emitter APIs instead')
   bool onNewPeer(NewPeerHandler handler) {
     return _newPeerHandler.add(handler);
   }
 
+  @Deprecated('use events_emitter APIs instead')
   bool offNewPeer(NewPeerHandler handler) {
     return _newPeerHandler.remove(handler);
   }
 
   void _fireFoundNewPeer(CompactAddress peer, String infoHash) {
+    events.emit(NewPeerEvent(address: peer, infoHash: infoHash));
     for (var handler in _newPeerHandler) {
       Timer.run(() => handler(peer, infoHash));
     }
