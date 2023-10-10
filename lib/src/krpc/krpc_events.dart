@@ -15,8 +15,8 @@ class KRPCResponseEvent implements KRPCEvent {
   });
 }
 
-class PingResponse extends KRPCResponseEvent {
-  PingResponse(
+class PongResponseEvent extends KRPCResponseEvent {
+  PongResponseEvent(
       {required List<int> nodeId,
       required InternetAddress address,
       required int port,
@@ -24,8 +24,8 @@ class PingResponse extends KRPCResponseEvent {
       : super(nodeId: nodeId, address: address, port: port, data: data);
 }
 
-class GetPeersResponse extends KRPCResponseEvent {
-  GetPeersResponse(
+class GetPeersResponseEvent extends KRPCResponseEvent {
+  GetPeersResponseEvent(
       {required List<int> nodeId,
       required InternetAddress address,
       required int port,
@@ -33,8 +33,8 @@ class GetPeersResponse extends KRPCResponseEvent {
       : super(nodeId: nodeId, address: address, port: port, data: data);
 }
 
-class FindNodeResponse extends KRPCResponseEvent {
-  FindNodeResponse(
+class FindNodeResponseEvent extends KRPCResponseEvent {
+  FindNodeResponseEvent(
       {required List<int> nodeId,
       required InternetAddress address,
       required int port,
@@ -42,8 +42,8 @@ class FindNodeResponse extends KRPCResponseEvent {
       : super(nodeId: nodeId, address: address, port: port, data: data);
 }
 
-class AnnouncePeerResponse extends KRPCResponseEvent {
-  AnnouncePeerResponse(
+class AnnouncePeerResponseEvent extends KRPCResponseEvent {
+  AnnouncePeerResponseEvent(
       {required List<int> nodeId,
       required InternetAddress address,
       required int port,
@@ -51,12 +51,12 @@ class AnnouncePeerResponse extends KRPCResponseEvent {
       : super(nodeId: nodeId, address: address, port: port, data: data);
 }
 
-class ErrorEvent implements KRPCEvent {
+class KRPCErrorEvent implements KRPCEvent {
   InternetAddress address;
   int port;
   int code;
   String msg;
-  ErrorEvent({
+  KRPCErrorEvent({
     required this.address,
     required this.port,
     required this.code,
@@ -79,8 +79,8 @@ class KRPCQueryEvent implements KRPCEvent {
   });
 }
 
-class PingQuery extends KRPCQueryEvent {
-  PingQuery(
+class PingQueryEvent extends KRPCQueryEvent {
+  PingQueryEvent(
       {required List<int> nodeId,
       required String transactionId,
       required InternetAddress address,
@@ -94,8 +94,8 @@ class PingQuery extends KRPCQueryEvent {
             data: data);
 }
 
-class GetPeersQuery extends KRPCQueryEvent {
-  GetPeersQuery(
+class GetPeersQueryEvent extends KRPCQueryEvent {
+  GetPeersQueryEvent(
       {required List<int> nodeId,
       required String transactionId,
       required InternetAddress address,
@@ -109,8 +109,8 @@ class GetPeersQuery extends KRPCQueryEvent {
             data: data);
 }
 
-class FindNodeQuery extends KRPCQueryEvent {
-  FindNodeQuery(
+class FindNodeQueryEvent extends KRPCQueryEvent {
+  FindNodeQueryEvent(
       {required List<int> nodeId,
       required String transactionId,
       required InternetAddress address,
@@ -124,8 +124,8 @@ class FindNodeQuery extends KRPCQueryEvent {
             data: data);
 }
 
-class AnnouncePeersQuery extends KRPCQueryEvent {
-  AnnouncePeersQuery(
+class AnnouncePeersQueryEvent extends KRPCQueryEvent {
+  AnnouncePeersQueryEvent(
       {required List<int> nodeId,
       required String transactionId,
       required InternetAddress address,

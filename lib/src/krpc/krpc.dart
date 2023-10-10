@@ -21,15 +21,6 @@ const Server_Error = 202;
 const Protocal_Error = 203;
 const UnknownMethod_Error = 204;
 
-typedef KRPCResponseHandler = void Function(
-    List<int> nodeId, InternetAddress address, int port, dynamic data);
-
-typedef KRPCQueryHandler = void Function(List<int> nodeId, String transactionId,
-    InternetAddress address, int port, dynamic data);
-
-typedef KRPCErrorHandler = void Function(
-    InternetAddress address, int port, int code, String msg);
-
 abstract class KRPC with EventsEmittable<KRPCEvent> {
   /// Start KRPC service.
   ///
@@ -56,73 +47,37 @@ abstract class KRPC with EventsEmittable<KRPCEvent> {
   /// - `204`	Method Unknown
   void error(String tid, InternetAddress address, int port,
       [int code = 201, String msg = 'Generic Error']);
-  @Deprecated('use events_emitter APIs instead')
-  bool onError(KRPCErrorHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offError(KRPCErrorHandler handler);
 
   /// send `ping` query to remote
   void ping(InternetAddress address, int port);
-  @Deprecated('use events_emitter APIs instead')
-  bool onPong(KRPCResponseHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offPong(KRPCResponseHandler handler);
 
   /// send `ping` response to remote
   void pong(String tid, InternetAddress address, int port, [String? nodeId]);
-  @Deprecated('use events_emitter APIs instead')
-  bool onPing(KRPCQueryHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offPing(KRPCQueryHandler handler);
 
   /// send `find_node` query to remote
   void findNode(String targetId, InternetAddress address, int port,
       [String? qNodeId]);
-  @Deprecated('use events_emitter APIs instead')
-  bool onFindNodeResponse(KRPCResponseHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offFindNodeResponse(KRPCResponseHandler handler);
 
   /// send `find_node` response to remote
   void responseFindNode(
       String tid, List<Node> nodes, InternetAddress address, int port,
       [String? nodeId]);
-  @Deprecated('use events_emitter APIs instead')
-  bool onFindNodeRequest(KRPCQueryHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offFindNodeRequest(KRPCQueryHandler handler);
 
   /// send `get_peers` to remote
   void getPeers(String infoHash, InternetAddress address, int port);
-  @Deprecated('use events_emitter APIs instead')
-  bool onGetPeersRequest(KRPCQueryHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offGetPeersRequest(KRPCQueryHandler handler);
 
   /// send `get_peers` response to remote
   void responseGetPeers(String tid, String infoHash, InternetAddress address,
       int port, String token,
       {Iterable<Node>? nodes, Iterable<CompactAddress>? peers, String? nodeId});
-  @Deprecated('use events_emitter APIs instead')
-  bool onGetPeersReponse(KRPCResponseHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offGetPeersResponse(KRPCResponseHandler handler);
 
   /// send `announce_peer` to remote
   void announcePeer(String infoHash, int peerPort, String token,
       InternetAddress address, int port,
       [bool impliedPort = true]);
-  @Deprecated('use events_emitter APIs instead')
-  bool onAnnouncePeerResponse(KRPCResponseHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offAnnouncePeerResponse(KRPCResponseHandler handler);
 
   /// send `announce_peer` response to remote
   void responseAnnouncePeer(String tid, InternetAddress address, int port);
-  @Deprecated('use events_emitter APIs instead')
-  bool onAnnouncePeerRequest(KRPCQueryHandler handler);
-  @Deprecated('use events_emitter APIs instead')
-  bool offAnnouncePeerRequest(KRPCQueryHandler handler);
 
   /// Create a new KRPC service.
   factory KRPC.newService(ID nodeId,
@@ -156,15 +111,6 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
   final Map<String, Timer> _timeoutMap = <String, Timer>{};
 
   _KRPC(this._nodeId, this._timeOutTime, this._maxQuery);
-  @Deprecated('use events_emitter APIs instead')
-  final Map<EVENT, Set<KRPCResponseHandler>> _responseHandlers =
-      <EVENT, Set<KRPCResponseHandler>>{};
-  @Deprecated('use events_emitter APIs instead')
-  final Map<EVENT, Set<KRPCQueryHandler>> _queryHandlers =
-      <EVENT, Set<KRPCQueryHandler>>{};
-  @Deprecated('use events_emitter APIs instead')
-  final Set<KRPCErrorHandler> _errorHandlers = <KRPCErrorHandler>{};
-
   StreamController? _queryController;
 
   StreamSubscription? _querySub;
@@ -175,122 +121,6 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
     if (isStopped || _socket == null) return;
     var message = errorMessage(tid, code, msg);
     _socket?.send(message, address, port);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offError(KRPCErrorHandler handler) {
-    return _errorHandlers.remove(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onError(KRPCErrorHandler handler) {
-    return _errorHandlers.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offFindNodeRequest(KRPCQueryHandler handler) {
-    return _queryHandlers[EVENT.FIND_NODE]?.remove(handler) ?? true;
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onFindNodeRequest(KRPCQueryHandler handler) {
-    _queryHandlers[EVENT.FIND_NODE] ??= <KRPCQueryHandler>{};
-    return _queryHandlers[EVENT.FIND_NODE]!.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offFindNodeResponse(KRPCResponseHandler handler) {
-    return _responseHandlers[EVENT.FIND_NODE]?.remove(handler) ?? true;
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onFindNodeResponse(KRPCResponseHandler handler) {
-    _responseHandlers[EVENT.FIND_NODE] ??= <KRPCResponseHandler>{};
-    return _responseHandlers[EVENT.FIND_NODE]!.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onPong(KRPCResponseHandler handler) {
-    _responseHandlers[EVENT.PING] ??= <KRPCResponseHandler>{};
-    return _responseHandlers[EVENT.PING]!.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offPong(KRPCResponseHandler handler) {
-    return _responseHandlers[EVENT.PING]?.remove(handler) ?? true;
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onPing(KRPCQueryHandler handler) {
-    _queryHandlers[EVENT.PING] ??= <KRPCQueryHandler>{};
-    return _queryHandlers[EVENT.PING]!.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offPing(KRPCQueryHandler handler) {
-    return _queryHandlers[EVENT.PING]?.remove(handler) ?? true;
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onGetPeersRequest(KRPCQueryHandler handler) {
-    _queryHandlers[EVENT.GET_PEERS] ??= <KRPCQueryHandler>{};
-    return _queryHandlers[EVENT.GET_PEERS]!.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offGetPeersRequest(KRPCQueryHandler handler) {
-    return _queryHandlers[EVENT.GET_PEERS]?.remove(handler) ?? true;
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offGetPeersResponse(KRPCResponseHandler handler) {
-    return _responseHandlers[EVENT.GET_PEERS]?.remove(handler) ?? true;
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onGetPeersReponse(KRPCResponseHandler handler) {
-    _responseHandlers[EVENT.GET_PEERS] ??= <KRPCResponseHandler>{};
-    return _responseHandlers[EVENT.GET_PEERS]!.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offAnnouncePeerRequest(KRPCQueryHandler handler) {
-    return _queryHandlers[EVENT.ANNOUNCE_PEER]?.remove(handler) ?? true;
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool offAnnouncePeerResponse(KRPCResponseHandler handler) {
-    return _responseHandlers[EVENT.ANNOUNCE_PEER]?.remove(handler) ?? true;
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onAnnouncePeerRequest(KRPCQueryHandler handler) {
-    _queryHandlers[EVENT.ANNOUNCE_PEER] ??= <KRPCQueryHandler>{};
-    return _queryHandlers[EVENT.ANNOUNCE_PEER]!.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  @override
-  bool onAnnouncePeerResponse(KRPCResponseHandler handler) {
-    _responseHandlers[EVENT.ANNOUNCE_PEER] ??= <KRPCResponseHandler>{};
-    return _responseHandlers[EVENT.ANNOUNCE_PEER]!.add(handler);
   }
 
   @override
@@ -582,10 +412,8 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
       String tid, InternetAddress address, int port, int code, String msg) {
     log('Received an error message from ${address.address}:$port :',
         error: '[$code]$msg', name: runtimeType.toString());
-    events.emit(ErrorEvent(address: address, port: port, code: code, msg: msg));
-    for (var element in _errorHandlers) {
-      Timer.run(() => element(address, port, code, msg));
-    }
+    events.emit(
+        KRPCErrorEvent(address: address, port: port, code: code, msg: msg));
   }
 
   /// Code	Description
@@ -607,36 +435,31 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
 
   void _fireResponse(EVENT event, List<int> nodeIdBytes,
       InternetAddress address, int port, dynamic response) {
-    var handlers = _responseHandlers[event];
     switch (event) {
       case EVENT.ANNOUNCE_PEER:
-        events.emit(AnnouncePeerResponse(
+        events.emit(AnnouncePeerResponseEvent(
             nodeId: nodeIdBytes, address: address, port: port, data: response));
         break;
       case EVENT.FIND_NODE:
-        events.emit(FindNodeResponse(
+        events.emit(FindNodeResponseEvent(
             nodeId: nodeIdBytes, address: address, port: port, data: response));
         break;
       case EVENT.GET_PEERS:
-        events.emit(GetPeersResponse(
+        events.emit(GetPeersResponseEvent(
             nodeId: nodeIdBytes, address: address, port: port, data: response));
         break;
       case EVENT.PING:
-        events.emit(PingResponse(
+        events.emit(PongResponseEvent(
             nodeId: nodeIdBytes, address: address, port: port, data: response));
         break;
     }
-    handlers?.forEach((handle) {
-      Timer.run(() => handle(nodeIdBytes, address, port, response));
-    });
   }
 
   void _fireQuery(EVENT event, List<int> nodeIdBytes, String transactionId,
       InternetAddress address, int port, dynamic arguments) {
-    var handlers = _queryHandlers[event];
     switch (event) {
       case EVENT.ANNOUNCE_PEER:
-        events.emit(AnnouncePeersQuery(
+        events.emit(AnnouncePeersQueryEvent(
             nodeId: nodeIdBytes,
             transactionId: transactionId,
             address: address,
@@ -644,7 +467,7 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
             data: arguments));
         break;
       case EVENT.FIND_NODE:
-        events.emit(FindNodeQuery(
+        events.emit(FindNodeQueryEvent(
             nodeId: nodeIdBytes,
             transactionId: transactionId,
             address: address,
@@ -652,7 +475,7 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
             data: arguments));
         break;
       case EVENT.GET_PEERS:
-        events.emit(GetPeersQuery(
+        events.emit(GetPeersQueryEvent(
             nodeId: nodeIdBytes,
             transactionId: transactionId,
             address: address,
@@ -660,7 +483,7 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
             data: arguments));
         break;
       case EVENT.PING:
-        events.emit(PingQuery(
+        events.emit(PingQueryEvent(
             nodeId: nodeIdBytes,
             transactionId: transactionId,
             address: address,
@@ -668,10 +491,6 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
             data: arguments));
         break;
     }
-    handlers?.forEach((handle) {
-      Timer.run(
-          () => handle(nodeIdBytes, transactionId, address, port, arguments));
-    });
   }
 
   @override
@@ -682,9 +501,6 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
     events.dispose();
     _socket?.close();
     _socket = null;
-    _responseHandlers.clear();
-    _queryHandlers.clear();
-    _errorHandlers.clear();
     _globalTransactionId = 0;
     _globalTransactionIdBuffer[0] = 0;
     _globalTransactionIdBuffer[1] = 0;

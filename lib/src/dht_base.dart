@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:bittorrent_dht/src/dht_events.dart';
+import 'package:bittorrent_dht/src/krpc/krpc_events.dart';
 import 'package:events_emitter2/events_emitter2.dart';
 import 'package:meta/meta.dart';
 import 'package:dtorrent_common/dtorrent_common.dart';
@@ -24,6 +25,7 @@ class DHT with EventsEmittable<DHTEvent> {
   KRPC? _krpc;
 
   KRPC? get krpc => _krpc;
+  EventsListener<KRPCEvent>? _krpcListener;
 
   Node? _root;
 
@@ -33,11 +35,6 @@ class DHT with EventsEmittable<DHTEvent> {
       <String, Queue<CompactAddress>>{};
 
   final Map<String, int> _announceTable = <String, int>{};
-  @Deprecated('use events_emitter APIs instead')
-  final Set<NewPeerHandler> _newPeerHandler = <NewPeerHandler>{};
-  @Deprecated('use events_emitter APIs instead')
-  final Set<void Function(int code, String msg)> _errorHandler =
-      <void Function(int code, String msg)>{};
 
   final List<Uri> _defaultBootstrapNodes = [
     Uri(host: 'router.bittorrent.com', port: 6881),
@@ -79,19 +76,31 @@ class DHT with EventsEmittable<DHTEvent> {
     var id = ID.randomID();
     _krpc ??= KRPC.newService(id, timeout: udpTimeout, maxQuery: maxQeury);
     _port = await _krpc?.start(port);
-    _krpc?.onError(_fireError);
+    _krpcListener = _krpc?.createListener();
+    _krpcListener
+      ?..on<KRPCErrorEvent>((event) =>
+          _fireError(event.address, event.port, event.code, event.msg))
+      ..on<PongResponseEvent>((event) =>
+          _processPong(event.nodeId, event.address, event.port, event.data))
+      ..on<PingQueryEvent>((event) => processPing(event.nodeId,
+          event.transactionId, event.address, event.port, event.data))
+      ..on<FindNodeQueryEvent>((event) => processFindNodeRequest(event.nodeId,
+          event.transactionId, event.address, event.port, event.data))
+      ..on<FindNodeResponseEvent>((event) => _processFindNodeResponse(
+          event.nodeId, event.address, event.port, event.data))
+      ..on<GetPeersQueryEvent>((event) => processGetPeersRequest(event.nodeId,
+          event.transactionId, event.address, event.port, event.data))
+      ..on<GetPeersResponseEvent>((event) => _processGetPeersResponse(
+          event.nodeId, event.address, event.port, event.data))
+      ..on<AnnouncePeersQueryEvent>((event) => _processAnnouncePeerRequest(
+          event.nodeId,
+          event.transactionId,
+          event.address,
+          event.port,
+          event.data))
+      ..on<AnnouncePeerResponseEvent>(
+          (event) => print("AnnouncePeerResponseEvent"));
 
-    _krpc?.onPong(_processPong);
-    _krpc?.onPing(processPing);
-
-    _krpc?.onFindNodeRequest(processFindNodeRequest);
-    _krpc?.onFindNodeResponse(_processFindNodeResponse);
-
-    _krpc?.onGetPeersRequest(processGetPeersRequest);
-    _krpc?.onGetPeersReponse(_processGetPeersResponse);
-
-    _krpc?.onAnnouncePeerRequest(_processAnnouncePeerRequest);
-    _krpc?.onAnnouncePeerResponse((nodeId, address, port, data) {});
     if (_krpc?.port != null) {
       _root ??= Node(
           id, CompactAddress(InternetAddress.anyIPv4, _krpc!.port!), -1, 8);
@@ -113,8 +122,6 @@ class DHT with EventsEmittable<DHTEvent> {
     events.dispose();
     resourceTable.clear();
     _announceTable.clear();
-    _newPeerHandler.clear();
-    _errorHandler.clear();
     _tokenGenerateTimer?.cancel();
     _tokenGenerateTimer = null;
     _port = null;
@@ -124,40 +131,14 @@ class DHT with EventsEmittable<DHTEvent> {
     _krpc = null;
   }
 
-  @Deprecated('use events_emitter APIs instead')
-  bool onError(void Function(int code, String msg) h) {
-    return _errorHandler.add(h);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  bool offError(void Function(int code, String msg) h) {
-    return _errorHandler.remove(h);
-  }
-
   void _fireError(InternetAddress address, int port, int code, String msg) {
     log('Got Error from $address:$port',
         error: msg, name: runtimeType.toString());
     events.emit(DHTError(code: code, message: msg));
-    for (var handler in _errorHandler) {
-      Timer.run(() => handler(code, msg));
-    }
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  bool onNewPeer(NewPeerHandler handler) {
-    return _newPeerHandler.add(handler);
-  }
-
-  @Deprecated('use events_emitter APIs instead')
-  bool offNewPeer(NewPeerHandler handler) {
-    return _newPeerHandler.remove(handler);
   }
 
   void _fireFoundNewPeer(CompactAddress peer, String infoHash) {
     events.emit(NewPeerEvent(address: peer, infoHash: infoHash));
-    for (var handler in _newPeerHandler) {
-      Timer.run(() => handler(peer, infoHash));
-    }
   }
 
   bool _canAdd(ID id) {

@@ -1,4 +1,5 @@
 import 'dart:developer' as dev;
+import 'package:bittorrent_dht/src/dht_events.dart';
 import 'package:dtorrent_common/dtorrent_common.dart';
 
 import 'package:bittorrent_dht/bittorrent_dht.dart';
@@ -10,16 +11,18 @@ void main() async {
   var dht = DHT();
   var test = <CompactAddress>{};
   dht.announce(infohashStr, 22123);
-  dht.onError((code, msg) {
-    dev.log('Error happend:', error: '[$code]$msg');
-  });
-  dht.onNewPeer((peer, token) {
-    if (test.add(peer)) {
-      dev.log(
-          'Found new peer address : $peer  ， Have ${test.length} peers already');
-    }
-  });
-
+  var dhtListener = dht.createListener();
+  dhtListener
+    ..on<DHTError>((event) =>
+        dev.log('Error happend:', error: '[${event.code}]${event.message}'))
+    ..on<NewPeerEvent>(
+      (event) {
+        if (test.add(event.address)) {
+          dev.log(
+              'Found new peer address : ${event.address}  ， Have ${test.length} peers already');
+        }
+      },
+    );
   await dht.bootstrap(udpTimeout: 5, cleanNodeTime: 5 * 60);
   for (var url in torrent.nodes) {
     await dht.addBootstrapNode(url);
