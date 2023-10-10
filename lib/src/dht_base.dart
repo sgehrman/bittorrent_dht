@@ -15,8 +15,6 @@ import 'kademlia/node.dart';
 import 'krpc/krpc.dart';
 import 'krpc/krpc_message.dart';
 
-typedef NewPeerHandler = void Function(CompactAddress address, String hashinfo);
-
 /// DHT service
 ///
 /// The default bootstrape is `router.bittorrent.com` , `router.utorrent.com` ,`dht.transmissionbt.com`.

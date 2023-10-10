@@ -11,7 +11,7 @@ dependencies:
   b_encode_decode: ^1.0.3
   dtorrent_common: ^1.0.4
   meta: ^1.9.1
-  events_emitter2: 1.0.2
+  events_emitter2: ^1.0.3
 dev_dependencies:
   lints: ^2.0.1
   logging: ^1.2.0
