@@ -1,5 +1,7 @@
 import 'package:dtorrent_common/dtorrent_common.dart';
 
+import 'kademlia/node.dart';
+
 abstract class DHTEvent {}
 
 class DHTError implements DHTEvent {
@@ -18,4 +20,18 @@ class NewPeerEvent implements DHTEvent {
     required this.address,
     required this.infoHash,
   });
+}
+
+class NewNodeAdded implements DHTEvent {
+  final Node node;
+  NewNodeAdded(
+    this.node,
+  );
+}
+
+class DHTNodeRemoved implements DHTEvent {
+  final Node node;
+  DHTNodeRemoved(
+    this.node,
+  );
 }

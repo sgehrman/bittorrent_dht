@@ -3,13 +3,16 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dtorrent_common/dtorrent_common.dart';
+import 'package:events_emitter2/events_emitter2.dart';
 
-import 'id.dart';
 import 'bucket.dart';
+import 'bucket_events.dart';
+import 'id.dart';
+import 'node_events.dart';
 
 /// Kademlia node
 ///
-class Node {
+class Node with EventsEmittable<NodeEvent> {
   bool _disposed = false;
 
   final ID id;
@@ -18,18 +21,17 @@ class Node {
 
   final int _cleanupTime;
 
+  int get cleanupTime => _cleanupTime;
+
+  DateTime lastCleanup = DateTime.now();
+
   bool queried = false;
 
   Timer? _timer;
 
-  final Set<void Function(Node)> _cleanupHandler = <void Function(Node)>{};
-
-  final Set<void Function(int index)> _bucketEmptyHandler =
-      <void Function(int index)>{};
-
   final CompactAddress? _compactAddress;
 
-  List<Bucket>? _buckets;
+  Map<Bucket, EventsListener<BucketEvent>?>? _buckets;
 
   InternetAddress? get address => _compactAddress?.address;
 
@@ -37,7 +39,7 @@ class Node {
 
   List<Bucket> get buckets {
     _buckets ??= _getBuckets();
-    return _buckets!;
+    return _buckets!.keys.toList();
   }
 
   final Map<String, String> token = <String, String>{};
@@ -45,7 +47,7 @@ class Node {
   final Map<String, bool> announced = <String, bool>{};
 
   List<Node> get nodes {
-    return buckets.expand((bucket) => bucket.nodes).toList();
+    return buckets.expand((bucket) => bucket.nodes.keys).toList();
   }
 
   Node(this.id, this._compactAddress,
@@ -53,29 +55,25 @@ class Node {
     resetCleanupTimer();
   }
 
-  bool onTimeToCleanup(void Function(Node node) h) {
-    return _cleanupHandler.add(h);
-  }
-
-  bool offTimeToCleanup(void Function(Node node) h) {
-    return _cleanupHandler.remove(h);
-  }
-
   void resetCleanupTimer() {
     _timer?.cancel();
     if (_cleanupTime != -1) {
-      _timer = Timer(Duration(seconds: _cleanupTime), _cleanupMe);
+      _timer = Timer(
+        Duration(seconds: _cleanupTime),
+        () => events.emit(NodeTimedOut(this)),
+      );
+      lastCleanup = DateTime.now();
     }
+    events.emit(NodeReset(this));
   }
 
-  void _cleanupMe() {
-    for (var element in _cleanupHandler) {
-      Timer.run(() => element(this));
-    }
-  }
-
-  List<Bucket> _getBuckets() {
-    _buckets ??= List.generate(id.byteLength * 8, (index) => Bucket(index));
+  Map<Bucket, EventsListener<BucketEvent>?> _getBuckets() {
+    // TODO:Check
+    _buckets ??= {
+      for (var element
+          in Iterable.generate(id.byteLength * 8, (index) => Bucket(index)))
+        element: null
+    };
     return _buckets!;
   }
 
@@ -85,13 +83,18 @@ class Node {
     var buckets = _getBuckets();
     Bucket? bucket;
     try {
-      bucket = buckets[index];
+      bucket = buckets.keys.toList()[index];
     } catch (e) {
       bucket ??= Bucket(index, k);
     }
 
-    buckets[index] = bucket;
-    bucket.onEmpty(_whenBucketIsEmpty);
+    buckets.keys.toList()[index] = bucket;
+    var bucketListener = bucket.createListener();
+    bucketListener
+      ..on<BucketIsEmpty>(
+          (event) => events.emit(NodeBucketIsEmpty(event.bucket.index)))
+      ..on<BucketNodeRemoved>(
+          ((event) => events.emit(NodeRemoved(event.node))));
     return bucket.addNode(node) != null;
   }
 
@@ -100,7 +103,7 @@ class Node {
     var index = _getBucketIndex(id);
     if (index == -1) return this;
     var buckets = _buckets;
-    var bucket = buckets![index];
+    var bucket = buckets!.keys.toList()[index];
     var tn = bucket.findNode(id);
     return tn?.node;
   }
@@ -109,42 +112,28 @@ class Node {
     if (_buckets == null || _buckets!.isEmpty) return null;
     var index = _getBucketIndex(id);
     if (index == -1) return null;
-    return _buckets![index];
+    return _buckets!.keys.toList()[index];
   }
 
   List<Node> findClosestNodes(ID id) {
     if (_buckets == null || _buckets!.isEmpty) return <Node>[];
     var index = _getBucketIndex(id);
     if (index == -1) return <Node>[this];
-    var bucket = _buckets![index];
+    var bucket = _buckets!.keys.toList()[index];
     var re = <Node>[];
-    while (index < _buckets!.length) {
+    while (index < _buckets!.keys.toList().length) {
       if (_fillNodeList(bucket, re, k)) break;
       index++;
-      if (index >= _buckets!.length) break;
-      bucket = _buckets![index];
+      if (index >= _buckets!.keys.toList().length) break;
+      bucket = _buckets!.keys.toList()[index];
     }
     return re;
   }
 
-  void _whenBucketIsEmpty(Bucket b) {
-    for (var element in _bucketEmptyHandler) {
-      Timer.run(() => element(b.index));
-    }
-  }
-
-  bool onBucketEmpty(void Function(int index) h) {
-    return _bucketEmptyHandler.add(h);
-  }
-
-  bool offBucketEmpty(void Function(int index) h) {
-    return _bucketEmptyHandler.add(h);
-  }
-
   bool _fillNodeList(Bucket bucket, List<Node> target, int max) {
-    for (var i = 0; i < bucket.nodes.length; i++) {
+    for (var i = 0; i < bucket.nodes.keys.length; i++) {
       if (target.length >= max) break;
-      target.add(bucket.nodes[i]);
+      target.add(bucket.nodes.keys.toList()[i]);
     }
     return target.length >= max;
   }
@@ -156,7 +145,7 @@ class Node {
   void remove(Node node) {
     if (_buckets == null || _buckets!.isEmpty) return;
     var index = _getBucketIndex(node.id);
-    var bucket = _buckets?[index];
+    var bucket = _buckets?.keys.toList()[index];
     bucket?.removeNode(node);
   }
 
@@ -164,9 +153,9 @@ class Node {
     var buckets = this.buckets;
     for (var i = 0; i < buckets.length; i++) {
       var b = buckets[i];
-      var l = b.nodes.length;
+      var l = b.nodes.keys.length;
       for (var i = 0; i < l; i++) {
-        var node = b.nodes[i];
+        var node = b.nodes.keys.toList()[i];
         processor(node);
       }
     }
@@ -187,18 +176,18 @@ class Node {
   void dispose() {
     if (isDisposed) return;
     _disposed = true;
+    events.dispose();
     _timer?.cancel();
     _timer = null;
 
-    _cleanupHandler.clear();
     token.clear();
     announced.clear();
 
     if (_buckets != null) {
       for (var i = 0; i < _buckets!.length; i++) {
-        var b = _buckets![i];
-        b.offEmpty(_whenBucketIsEmpty);
-        b.dispose();
+        var b = _buckets!.entries.toList()[i];
+        b.value?.dispose();
+        b.key.dispose();
       }
     }
     _buckets = null;

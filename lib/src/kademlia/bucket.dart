@@ -1,16 +1,17 @@
 import 'dart:math';
 
+import 'package:events_emitter2/events_emitter2.dart';
+
+import 'bucket_events.dart';
 import 'id.dart';
 import 'node.dart';
+import 'node_events.dart';
 import 'tree_node.dart';
 
-class Bucket extends TreeNode {
+class Bucket extends TreeNode with EventsEmittable<BucketEvent> {
   final int _maxSize;
 
-  final List<Node> _nodes = <Node>[];
-
-  final Set<void Function(Bucket bucket)> _emptyHandler =
-      <void Function(Bucket bucket)>{};
+  final Map<Node, EventsListener<NodeEvent>> _nodes = {};
 
   int _count = 0;
 
@@ -28,22 +29,24 @@ class Bucket extends TreeNode {
 
   int get count => _count;
 
-  List<Node> get nodes => _nodes;
+  Map<Node, EventsListener<NodeEvent>> get nodes => _nodes;
 
   TreeNode? addNode(Node? node) {
     if (node == null) return null;
-    if (_count >= bucketMaxSize) {
+    if (isFull) {
       return null;
     } else {
       var currentNode = _generateTreeNode(node.id);
       if (currentNode.node == null) {
         _count++;
         currentNode.node = node;
-        _nodes.add(node);
-        node.onTimeToCleanup(_nodeIsOutTime);
+        _nodes[node] = node.createListener();
+        _nodes[node]!.on<NodeTimedOut>(_nodeTimedOut);
+        events.emit(BucketNodeInserted(node));
         return currentNode;
       } else {
         currentNode.node = node;
+        events.emit(BucketNodeInserted(node));
         return currentNode;
       }
     }
@@ -56,9 +59,8 @@ class Bucket extends TreeNode {
     return min(_maxSize, pow(2, index).toInt());
   }
 
-  void _nodeIsOutTime(Node node) {
-    node.offTimeToCleanup(_nodeIsOutTime);
-    removeNode(node);
+  void _nodeTimedOut(NodeTimedOut event) {
+    removeNode(event.node);
   }
 
   TreeNode? removeNode(dynamic a) {
@@ -80,38 +82,27 @@ class Bucket extends TreeNode {
     if (t != null) {
       var node = t.node;
       _count--;
-      _nodes.remove(node);
+      var nodeEventsListener = _nodes.remove(node);
+      nodeEventsListener!.dispose();
+      node!.dispose();
       t.dispose();
+      events.emit(BucketNodeRemoved(node));
       if (isEmpty) {
-        _fireEmptyEvent();
+        events.emit(BucketIsEmpty(this));
       }
       return t;
     }
     return null;
   }
 
-  void _fireEmptyEvent() {
-    for (var element in _emptyHandler) {
-      element(this);
-    }
-  }
-
-  bool onEmpty(void Function(Bucket b) h) {
-    return _emptyHandler.add(h);
-  }
-
-  bool offEmpty(void Function(Bucket b) h) {
-    return _emptyHandler.remove(h);
-  }
-
   TreeNode _generateTreeNode(ID id) {
     TreeNode currentNode = this;
-    for (var i = id.byteLength - 1; i >= 0; i--) {
-      var n = id.getValueAt(i);
+    for (var byteIndex = id.byteLength - 1; byteIndex >= 0; byteIndex--) {
+      var byte = id.getValueAt(byteIndex);
       var base = BASE_NUM;
-      for (var i = 0; i < 8; i++) {
+      for (var bitIndex = 0; bitIndex < 8; bitIndex++) {
         TreeNode? next;
-        if (n & base == 0) {
+        if (byte & base == 0) {
           next = currentNode.right;
           next ??= TreeNode();
           currentNode.right = next;
@@ -129,13 +120,14 @@ class Bucket extends TreeNode {
 
   @override
   void dispose() {
-    super.dispose();
-    _emptyHandler.clear();
-    for (var element in _nodes) {
-      element.dispose();
+    events.dispose();
+    for (var element in _nodes.entries) {
+      element.value.dispose();
+      element.key.dispose();
     }
     _nodes.clear();
     _count = 0;
+    super.dispose();
   }
 
   @override

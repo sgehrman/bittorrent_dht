@@ -4,15 +4,16 @@ import 'dart:developer';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'package:bittorrent_dht/src/dht_events.dart';
-import 'package:bittorrent_dht/src/krpc/krpc_events.dart';
 import 'package:events_emitter2/events_emitter2.dart';
 import 'package:meta/meta.dart';
 import 'package:dtorrent_common/dtorrent_common.dart';
 
+import 'dht_events.dart';
 import 'kademlia/id.dart';
 import 'kademlia/node.dart';
+import 'kademlia/node_events.dart';
 import 'krpc/krpc.dart';
+import 'krpc/krpc_events.dart';
 import 'krpc/krpc_message.dart';
 
 /// DHT service
@@ -28,6 +29,8 @@ class DHT with EventsEmittable<DHTEvent> {
   Node? _root;
 
   Node? get root => _root;
+
+  EventsListener<NodeEvent>? rootListener;
   @protected
   final Map<String, Queue<CompactAddress>> resourceTable =
       <String, Queue<CompactAddress>>{};
@@ -103,7 +106,18 @@ class DHT with EventsEmittable<DHTEvent> {
       _root ??= Node(
           id, CompactAddress(InternetAddress.anyIPv4, _krpc!.port!), -1, 8);
     }
-    _root?.onBucketEmpty(_allFindNode);
+    rootListener = _root?.createListener();
+    rootListener
+      ?..on<NodeBucketIsEmpty>(_allFindNode)
+      ..on<NodeRemoved>((event) {
+        root!.forEach((node) {
+          _tryToGetNode(node.address!, node.port!);
+        });
+        events.emit(
+          DHTNodeRemoved(event.node),
+        );
+      });
+    // events.emit(event);
     for (var url in _defaultBootstrapNodes) {
       addBootstrapNode(url);
     }
@@ -223,8 +237,8 @@ class DHT with EventsEmittable<DHTEvent> {
     _fireFoundNewPeer(peer, infoHashStr);
   }
 
-  void _allFindNode(int index) {
-    index = 159 - index;
+  void _allFindNode(NodeBucketIsEmpty event) {
+    var index = 159 - event.bucketIndex;
     var id = ID.randomID(20);
     var n = index ~/ 8; //Number of identical digits
     var offset = index.remainder(
@@ -441,6 +455,7 @@ class DHT with EventsEmittable<DHTEvent> {
       node ??= Node(qid, CompactAddress(address, port), _cleanNodeTime);
       node.queried = true;
       if (_root != null && _root!.add(node)) {
+        events.emit(NewNodeAdded(node));
         if (_announceTable.keys.isNotEmpty) {
           // Request peers from the newly added node
           for (var infoHash in _announceTable.keys) {
