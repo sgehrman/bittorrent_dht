@@ -4,10 +4,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:b_encode_decode/b_encode_decode.dart';
+import 'package:bittorrent_dht/src/extensions.dart';
 import 'package:bittorrent_dht/src/krpc/krpc_events.dart';
+import 'package:bittorrent_dht/src/krpc/transaction.dart';
+import 'package:collection/collection.dart';
 import 'package:dtorrent_common/dtorrent_common.dart';
 import 'package:events_emitter2/events_emitter2.dart';
-
 import 'krpc_message.dart';
 import '../kademlia/id.dart';
 import '../kademlia/node.dart';
@@ -45,18 +47,18 @@ abstract class KRPC with EventsEmittable<KRPCEvent> {
   /// - `202`	Server Error
   /// - `203`	Protocol Error, such as a malformed packet, invalid arguments, or bad token
   /// - `204`	Method Unknown
-  void error(String tid, InternetAddress address, int port,
+  void sendError(String tid, InternetAddress address, int port,
       [int code = 201, String msg = 'Generic Error']);
 
   /// send `ping` query to remote
-  void ping(InternetAddress address, int port);
+  void ping(InternetAddress address, int port, {Node? queriedNode});
 
   /// send `ping` response to remote
   void pong(String tid, InternetAddress address, int port, [String? nodeId]);
 
   /// send `find_node` query to remote
   void findNode(String targetId, InternetAddress address, int port,
-      [String? qNodeId]);
+      {String? qNodeId, Node? queriedNode});
 
   /// send `find_node` response to remote
   void responseFindNode(
@@ -64,7 +66,8 @@ abstract class KRPC with EventsEmittable<KRPCEvent> {
       [String? nodeId]);
 
   /// send `get_peers` to remote
-  void getPeers(String infoHash, InternetAddress address, int port);
+  void getPeers(String infoHash, InternetAddress address, int port,
+      {Node? queriedNode});
 
   /// send `get_peers` response to remote
   void responseGetPeers(String tid, String infoHash, InternetAddress address,
@@ -74,7 +77,7 @@ abstract class KRPC with EventsEmittable<KRPCEvent> {
   /// send `announce_peer` to remote
   void announcePeer(String infoHash, int peerPort, String token,
       InternetAddress address, int port,
-      [bool impliedPort = true]);
+      {bool impliedPort = true, Node? queriedNode});
 
   /// send `announce_peer` response to remote
   void responseAnnouncePeer(String tid, InternetAddress address, int port);
@@ -104,11 +107,9 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
 
   RawDatagramSocket? _socket;
 
-  final Map<String, EVENT> _transactionsMap = <String, EVENT>{};
+  final List<QueryTransaction> _transactionsMap = [];
 
   final Map<String, String?> _transactionsValues = <String, String?>{};
-
-  final Map<String, Timer> _timeoutMap = <String, Timer>{};
 
   _KRPC(this._nodeId, this._timeOutTime, this._maxQuery);
   StreamController? _queryController;
@@ -116,7 +117,7 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
   StreamSubscription? _querySub;
 
   @override
-  void error(String tid, InternetAddress address, int port,
+  void sendError(String tid, InternetAddress address, int port,
       [int code = 201, String msg = 'Generic Error']) {
     if (isStopped || _socket == null) return;
     var message = errorMessage(tid, code, msg);
@@ -133,9 +134,9 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
   @override
   void announcePeer(String infoHash, int peerPort, String token,
       InternetAddress address, int port,
-      [bool impliedPort = true]) {
+      {bool impliedPort = true, Node? queriedNode}) {
     if (isStopped || _socket == null) return;
-    var tid = _recordTransaction(EVENT.ANNOUNCE_PEER);
+    var tid = _recordTransaction(EVENT.ANNOUNCE_PEER, queriedNode);
     var message =
         announcePeerMessage(tid, _nodeId.toString(), infoHash, peerPort, token);
     _requestQuery(tid, message, address, port);
@@ -172,26 +173,27 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
   }
 
   @override
-  void ping(InternetAddress address, int port) async {
+  void ping(InternetAddress address, int port, {Node? queriedNode}) async {
     if (isStopped || _socket == null) return;
-    var tid = _recordTransaction(EVENT.PING);
+    var tid = _recordTransaction(EVENT.PING, queriedNode);
     var message = pingMessage(tid, _nodeId.toString());
     _requestQuery(tid, message, address, port);
   }
 
   @override
   void findNode(String targetId, InternetAddress address, int port,
-      [String? qNodeId]) {
+      {String? qNodeId, Node? queriedNode}) {
     if (isStopped || _socket == null) return;
-    var tid = _recordTransaction(EVENT.FIND_NODE);
+    var tid = _recordTransaction(EVENT.FIND_NODE, queriedNode);
     var message = findNodeMessage(tid, qNodeId ?? _nodeId.toString(), targetId);
     _requestQuery(tid, message, address, port);
   }
 
   @override
-  void getPeers(String infoHash, InternetAddress address, int port) {
+  void getPeers(String infoHash, InternetAddress address, int port,
+      {Node? queriedNode}) {
     if (isStopped || _socket == null) return;
-    var tid = _recordTransaction(EVENT.GET_PEERS);
+    var tid = _recordTransaction(EVENT.GET_PEERS, queriedNode);
     _transactionsValues[tid] = infoHash;
     var message = getPeersMessage(tid, _nodeId.toString(), infoHash);
     _requestQuery(tid, message, address, port);
@@ -219,34 +221,42 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
     var port = event['port'] as int;
     var tid = event['transacationId'] as String;
     // print('Sending request $tid, currently pending requests: $_pendingQuery."');
-    _timeoutMap[tid] =
-        Timer(Duration(seconds: _timeOutTime), () => _fireTimeout(tid));
+    var transaction = _transactionsMap
+        .firstWhereOrNull((transaction) => transaction.transactionId == tid);
+    if (transaction != null) {
+      transaction.timer =
+          Timer(Duration(seconds: _timeOutTime), () => _fireTimeout(tid));
+    }
+
     _socket?.send(message, address, port);
   }
 
-  String _recordTransaction(EVENT event) {
+  String _recordTransaction(EVENT event, Node? queriedNode) {
     var tid = createTransactionId();
-    while (_transactionsMap[tid] != null) {
+    while (_transactionsMap
+        .any((transaction) => transaction.transactionId == tid)) {
       tid = createTransactionId();
     }
-    _transactionsMap[tid] = event;
+    _transactionsMap.add(QueryTransaction(
+        event: event, transactionId: tid, queriedNode: queriedNode));
     return tid;
   }
 
   void _fireTimeout(String id) {
-    var event = _cleanTransaction(id);
-    if (event != null) {
+    var transaction = _cleanTransaction(id);
+    if (transaction != null) {
       _reducePendingQuery();
       // print('Request timed out for $id, currently pending requests: $_pendingQuery.');
+      transaction.queriedNode?.queryFailed();
     }
   }
 
-  EVENT? _cleanTransaction(String id) {
-    var event = _transactionsMap.remove(id);
-    _timeoutMap[id]?.cancel();
-    _timeoutMap.remove(id);
+  QueryTransaction? _cleanTransaction(String id) {
+    var queryTransaction = _transactionsMap
+        .removeWhereAndReturn((transaction) => transaction.transactionId == id);
+    queryTransaction?.timer?.cancel();
     _transactionsValues.remove(id);
-    return event;
+    return queryTransaction;
   }
 
   String createTransactionId() {
@@ -304,8 +314,6 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
 
   void _processReceiveData(
       InternetAddress address, int port, Uint8List bufferData) {
-    _reducePendingQuery();
-
     // _totalPending--;
     // print('There are currently $_totalPending requests.');
     dynamic data;
@@ -341,13 +349,14 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
       log('Error parsing Method', error: e, name: runtimeType.toString());
     }
     if (method == RESPONSE_KEY && data[RESPONSE_KEY] != null) {
+      _reducePendingQuery();
       var idBytes = data[RESPONSE_KEY][ID_KEY];
       if (idBytes == null) {
         _fireError(Protocal_Error, tid, 'Incorrect Node ID', address, port);
         return;
       }
-      var event = _cleanTransaction(tid);
-      if (event == null) {
+      var queryTransaction = _cleanTransaction(tid);
+      if (queryTransaction == null) {
         return;
       }
       var r = data[RESPONSE_KEY];
@@ -356,7 +365,7 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
       }
       // Processing the response sent by the remote
 
-      _fireResponse(event, idBytes, address, port, r);
+      _fireResponse(queryTransaction.event, idBytes, address, port, r);
       return;
     }
     if (method == QUERY_KEY &&
@@ -424,10 +433,10 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
   void _fireError(
       int code, String? tid, String msg, InternetAddress address, int port) {
     if (tid != null) {
-      _transactionsMap.remove(tid);
-      _timeoutMap[tid]?.cancel();
-      _timeoutMap.remove(tid);
-      error(tid, address, port, code, msg);
+      var tr = _transactionsMap.removeWhereAndReturn(
+          (transaction) => transaction.transactionId == tid);
+      tr?.timer?.cancel();
+      sendError(tid, address, port, code, msg);
     } else {
       log('UnSend Error:', error: '[$code]$msg', name: runtimeType.toString());
     }
@@ -505,12 +514,12 @@ class _KRPC with EventsEmittable<KRPCEvent> implements KRPC {
     _globalTransactionIdBuffer[0] = 0;
     _globalTransactionIdBuffer[1] = 0;
     _pendingQuery = 0;
+    for (var transaction in _transactionsMap) {
+      transaction.timer?.cancel();
+    }
     _transactionsMap.clear();
     _transactionsValues.clear();
-    _timeoutMap.forEach((key, timer) {
-      timer.cancel();
-    });
-    _timeoutMap.clear();
+
     try {
       await _querySub?.cancel();
     } finally {

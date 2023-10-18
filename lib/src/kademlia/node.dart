@@ -10,6 +10,8 @@ import 'bucket_events.dart';
 import 'id.dart';
 import 'node_events.dart';
 
+enum ActivityState { questionable, good, bad }
+
 /// Kademlia node
 ///
 class Node with EventsEmittable<NodeEvent> {
@@ -23,11 +25,41 @@ class Node with EventsEmittable<NodeEvent> {
 
   int get cleanupTime => _cleanupTime;
 
-  DateTime lastCleanup = DateTime.now();
+  DateTime get lastActive => [_lastQuerySentTime, _lastResponseSentTime]
+      .reduce((min, e) => e.isAfter(min) ? e : min);
+
+  DateTime _lastQuerySentTime = DateTime.now();
+  DateTime _lastResponseSentTime = DateTime.now();
+
+  int failedQueries = 0;
+
+  void queryFailed() {
+    failedQueries++;
+    if (failedQueries > 3) events.emit(NodeTimedOut(this));
+  }
+
+  void querySucceeded() {
+    failedQueries = 0;
+  }
+
+  ActivityState get activityState {
+    if (DateTime.now().difference(_lastResponseSentTime) <
+        Duration(minutes: 15)) {
+      return ActivityState.good;
+    }
+    if (DateTime.now().difference(_lastQuerySentTime) < Duration(minutes: 15)) {
+      return ActivityState.good;
+    }
+    return ActivityState.questionable;
+  }
 
   bool queried = false;
 
   Timer? _timer;
+  // Timer? _queryReceivedCleanupTimer;
+  // Timer? _responseReceivedCleanupTimer;
+  // Timer? _querySentCleanupTimer;
+  // Timer? _responseSentCleanupTimer;
 
   final CompactAddress? _compactAddress;
 
@@ -52,18 +84,23 @@ class Node with EventsEmittable<NodeEvent> {
 
   Node(this.id, this._compactAddress,
       [this._cleanupTime = 15 * 60, this.k = 8]) {
-    resetCleanupTimer();
+    resetCleanupTimers();
   }
 
-  void resetCleanupTimer() {
+  void resetCleanupTimers() {
     _timer?.cancel();
-    if (_cleanupTime != -1) {
-      _timer = Timer(
-        Duration(seconds: _cleanupTime),
-        () => events.emit(NodeTimedOut(this)),
-      );
-      lastCleanup = DateTime.now();
-    }
+  }
+
+  void querySent() {
+    _lastQuerySentTime = DateTime.now();
+    resetCleanupTimers();
+    events.emit(NodeReset(this));
+  }
+
+  void responseSent() {
+    _lastResponseSentTime = DateTime.now();
+    querySucceeded();
+    resetCleanupTimers();
     events.emit(NodeReset(this));
   }
 

@@ -111,7 +111,7 @@ class DHT with EventsEmittable<DHTEvent> {
       ?..on<NodeBucketIsEmpty>(_allFindNode)
       ..on<NodeRemoved>((event) {
         root!.forEach((node) {
-          _tryToGetNode(node.address!, node.port!);
+          _tryToGetNode(node.address!, node.port!, queriedNode: node);
         });
         events.emit(
           DHTNodeRemoved(event.node),
@@ -173,7 +173,7 @@ class DHT with EventsEmittable<DHTEvent> {
         _tryToGetNode(address, port);
       } else {
         var node = _root?.findNode(id);
-        node?.resetCleanupTimer();
+        node?.responseSent();
       }
     } catch (e) {
       // do nothing
@@ -192,7 +192,7 @@ class DHT with EventsEmittable<DHTEvent> {
         _tryToGetNode(address, port);
       } else {
         var node = _root?.findNode(id);
-        node?.resetCleanupTimer();
+        node?.querySent();
       }
     } catch (e) {
       // do nothing
@@ -205,12 +205,12 @@ class DHT with EventsEmittable<DHTEvent> {
         name: runtimeType.toString());
     var infoHash = data['info_hash'] as List<int>;
     if (infoHash.length != 20) {
-      _krpc?.error(tid, address, port, 203, 'Bad InfoHash');
+      _krpc?.sendError(tid, address, port, 203, 'Bad InfoHash');
       return;
     }
     var token = data[TOKEN_KEY];
     if (token == null || token.length != 4 || !_validateToken(token, address)) {
-      _krpc?.error(tid, address, port, 203, 'Bad token');
+      _krpc?.sendError(tid, address, port, 203, 'Bad token');
       return;
     }
     var infoHashStr = String.fromCharCodes(infoHash);
@@ -223,7 +223,7 @@ class DHT with EventsEmittable<DHTEvent> {
     } else {
       var peerPort = data['port'];
       if (peerPort == null) {
-        _krpc?.error(
+        _krpc?.sendError(
             tid, address, port, 203, 'invalid arguments - port is null');
         return;
       }
@@ -276,7 +276,8 @@ class DHT with EventsEmittable<DHTEvent> {
       _root?.forEach((node) {
         node.queried = false;
         if (node.address != null && node.port != null) {
-          _tryToGetNode(node.address!, node.port!, nid.toString());
+          _tryToGetNode(node.address!, node.port!,
+              id: nid.toString(), queriedNode: node);
         }
       });
     } catch (e) {
@@ -321,14 +322,14 @@ class DHT with EventsEmittable<DHTEvent> {
         _tryToGetNode(address, port);
       } else {
         var node = _root?.findNode(qid);
-        node?.resetCleanupTimer();
+        node?.querySent();
       }
     } catch (e) {
       // do nothing
     }
     var infohash = data['info_hash'] as List<int>;
     if (infohash.length != 20) {
-      _krpc?.error(tid, address, port, 203, 'invalid arguments');
+      _krpc?.sendError(tid, address, port, 203, 'invalid arguments');
       return;
     }
     var nodes = findClosestNode(infohash);
@@ -351,7 +352,7 @@ class DHT with EventsEmittable<DHTEvent> {
       );
       var node = _root?.findNode(qid);
       if (node == null) return;
-      node.resetCleanupTimer();
+      node.responseSent();
       String? token;
       if (data[TOKEN_KEY] != null) {
         token = String.fromCharCodes(data['token']);
@@ -374,7 +375,14 @@ class DHT with EventsEmittable<DHTEvent> {
         if (peerPort != null) {
           node.announced[infoHash] = true;
           // print('Announce Peer:Port $peerPort ,hash:$infoHash');
-          _krpc?.announcePeer(infoHash, peerPort, token, address, port);
+          _krpc?.announcePeer(
+            infoHash,
+            peerPort,
+            token,
+            address,
+            port,
+            queriedNode: node,
+          );
         }
       }
       if (data[NODES_KEY] != null) {
@@ -422,14 +430,14 @@ class DHT with EventsEmittable<DHTEvent> {
         _tryToGetNode(address, port);
       } else {
         var node = _root?.findNode(qid);
-        node?.resetCleanupTimer();
+        node?.querySent();
       }
     } catch (e) {
       //
     }
     var target = data[TARGET_KEY];
     if (target == null || target.length != 20) {
-      _krpc?.error(tid, address, port, 203, 'invalid arguments');
+      _krpc?.sendError(tid, address, port, 203, 'invalid arguments');
       return;
     }
     var nodes = findClosestNode(target);
@@ -446,7 +454,7 @@ class DHT with EventsEmittable<DHTEvent> {
           name: runtimeType.toString());
       if (qid == _root?.id) return;
       var node = _root?.findNode(qid);
-      node?.resetCleanupTimer();
+      node?.responseSent();
       if (node != null && node.queried) {
         // If a node is already present in the local network and has been
         // 'findnode'ed before, it will no longer be processed for the obtained nodes.
@@ -510,19 +518,21 @@ class DHT with EventsEmittable<DHTEvent> {
     }
     Timer.run(() {
       if (node.address != null && node.port != null) {
-        _krpc?.getPeers(infoHash, node.address!, node.port!);
+        _krpc?.getPeers(infoHash, node.address!, node.port!, queriedNode: node);
       }
     });
   }
 
-  void _tryToGetNode(InternetAddress address, int port, [String? id]) {
+  void _tryToGetNode(InternetAddress address, int port,
+      {String? id, Node? queriedNode}) {
     if (id == null) {
       if (_root != null) {
         id = _root?.id.toString();
       }
     }
     if (id != null) {
-      Timer.run(() => _krpc?.findNode(id!, address, port));
+      Timer.run(
+          () => _krpc?.findNode(id!, address, port, queriedNode: queriedNode));
     }
   }
 
