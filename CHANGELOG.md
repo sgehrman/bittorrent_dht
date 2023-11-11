@@ -19,3 +19,8 @@
 ## 0.0.9
 
 - pub.dev fixes
+
+## 0.0.11
+
+- switch to events_emitter2
+- some refactoring
