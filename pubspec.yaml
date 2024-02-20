@@ -15,7 +15,7 @@ dependencies:
   dtorrent_common: ^1.0.5
   events_emitter2:
     git: https://github.com/sgehrman/events_emitter2
-  meta: ^1.12.0
+  meta: ^1.11.0
 dev_dependencies:
   analyzer: any
   dtorrent_parser: ^1.0.8
