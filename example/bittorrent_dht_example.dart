@@ -1,5 +1,4 @@
 import 'dart:developer' as dev;
-import 'package:bittorrent_dht/src/dht_events.dart';
 import 'package:dtorrent_common/dtorrent_common.dart';
 
 import 'package:bittorrent_dht/bittorrent_dht.dart';
